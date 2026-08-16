@@ -71,7 +71,7 @@ function stageDist(): string {
 }
 
 /** A fake webServer capturing the fallback seat and index taps. */
-function fakeHttpServer(host: '127.0.0.1' | '0.0.0.0' = '127.0.0.1'): { server: WebServer; seat: () => unknown } {
+function fakeHttpServer(host = '127.0.0.1'): { server: WebServer; seat: () => unknown } {
   let fallback: unknown
   const server = {
     host,
@@ -162,6 +162,37 @@ describe('web-app runtime glue', () => {
     expect(section?.text).toContain('pnpm run dev:web')
     const webRuntime = contributions.find(contribution => contribution.name === 'web-runtime')
     expect(webRuntime?.resolve()).toEqual({ DSH_WEB_URL: 'http://127.0.0.1:4567' })
+    await ctx.fiber.dispose()
+  })
+
+  it('advertises an explicit internal bind host through the prompt, runtime trust, and URL line', async () => {
+    stageDist()
+    const ctx = new Context()
+    const { server } = fakeHttpServer('100.64.0.9')
+    ctx.provide('webServer', server)
+    const contributions: BashContribution[] = []
+    ctx.provide('shellEnv', {
+      register: (contribution: BashContribution) => {
+        contributions.push(contribution)
+        return () => {}
+      },
+    } as never)
+    provideLoader(ctx)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    apply(ctx, new Config({ openBrowser: false, printUrl: true, surfaceContext: true, trustedHosts: ['lab.internal'] }))
+    await ctx.plugin(SystemPrompt, { persona: '' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(ctx.get('webRuntime')).toEqual({
+      lanAddresses: [],
+      trustedHosts: ['100.64.0.9', 'lab.internal'],
+    })
+    expect(log).toHaveBeenCalledWith('dsh web: http://100.64.0.9:4567')
+    const assembly = await ctx.systemPrompt.assemble()
+    const section = assembly.sections.find(entry => entry.name === 'app:web-surface')
+    expect(section?.text).toContain('http://100.64.0.9:4567')
+    const webRuntime = contributions.find(contribution => contribution.name === 'web-runtime')
+    expect(webRuntime?.resolve()).toEqual({ DSH_WEB_URL: 'http://100.64.0.9:4567' })
     await ctx.fiber.dispose()
   })
 

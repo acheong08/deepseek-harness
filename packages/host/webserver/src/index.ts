@@ -38,6 +38,18 @@ declare module '@deepseek-ai/cordis' {
 /** Route match kind: 'exact' matches the pathname verbatim; 'prefix' p matches p and p/<anything>. */
 export type WebRouteKind = 'exact' | 'prefix'
 
+const IPV4_OCTET = String.raw`(?:25[0-5]|2[0-4]\d|1?\d?\d)`
+const SUPPORTED_BIND_HOST = new RegExp(String.raw`^(?:127\.0\.0\.1|0\.0\.0\.0|10(?:\.${IPV4_OCTET}){3}|172\.(?:1[6-9]|2\d|3[01])(?:\.${IPV4_OCTET}){2}|192\.168(?:\.${IPV4_OCTET}){2}|100\.(?:6[4-9]|[78]\d|9\d|1[01]\d|12[0-7])(?:\.${IPV4_OCTET}){2})$`)
+
+/**
+ * Whether a bind host is part of the Web carrier's supported contract.
+ * @param host - candidate bind host.
+ * @returns true for the default loopback host, the wildcard host, or an internal IPv4 literal.
+ */
+export function isSupportedBindHost(host: string): boolean {
+  return SUPPORTED_BIND_HOST.test(host)
+}
+
 /** One named route registration. */
 export interface WebRoute {
   kind: WebRouteKind
@@ -57,8 +69,8 @@ export interface WebUpgradeRoute {
 
 /** Web server listen and response-compression config. */
 export interface Config {
-  /** Listen host; the two supported values are loopback and all-interfaces. */
-  host: '127.0.0.1' | '0.0.0.0'
+  /** Listen host; accepted values are the default loopback host, all-interfaces, or an internal IPv4 literal. */
+  host: string
   /** Listen port; zero requests an OS-assigned port. */
   port: number
   /** Response compression for socket-backed HTTP requests. @default 'none' */
@@ -124,7 +136,7 @@ function createGzipMiddleware(config: ResolvedConfig): NodeMiddleware {
  */
 export class WebServer extends Service {
   static Config: z<Config> = z.object({
-    host: z.union([z.const('127.0.0.1'), z.const('0.0.0.0')]).required(),
+    host: z.string().pattern(SUPPORTED_BIND_HOST).description('127.0.0.1, 0.0.0.0, or a private/CGNAT IPv4 literal').required(),
     port: z.natural().max(65535).required(),
     compression: z.union([z.const('none'), z.const('gzip')]).default(DEFAULT_COMPRESSION),
     compressionLevel: z.number().step(1).min(0).max(9).default(DEFAULT_COMPRESSION_LEVEL),
@@ -152,7 +164,7 @@ export class WebServer extends Service {
     return this.listenedPort
   }
 
-  /** The configured bind host (the loopback or all-interfaces literal). */
+  /** The configured bind host. */
   get host(): Config['host'] {
     return this.config.host
   }
