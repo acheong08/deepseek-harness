@@ -59,7 +59,7 @@ export const Config: z<Config> = z.object({
 export interface WebRuntimeValues {
   /** LAN IPv4 literals sampled once when the server binds all interfaces. */
   lanAddresses: string[]
-  /** LAN literals followed by explicit invocation authorities. */
+  /** Trusted IP literals derived from the bind plus explicit invocation authorities. */
   trustedHosts: string[]
 }
 
@@ -73,7 +73,7 @@ const LOOPBACK_HOST = '127.0.0.1'
 const ALL_INTERFACES_HOST = '0.0.0.0'
 
 /**
- * Resolve one LAN-trust snapshot from the active server bind.
+ * Resolve one trust snapshot from the active server bind.
  *
  * Derived entries are port-less IP literals: DNS rebinding needs an
  * attacker-controlled name, while an IP-literal Host is safe on any port and
@@ -88,7 +88,12 @@ export function resolveLanTrust(bindHost: string, extra: readonly string[]): Web
       .filter((iface): iface is NonNullable<typeof iface> => iface !== undefined && iface.family === 'IPv4' && !iface.internal)
       .map(iface => iface.address)
     : []
-  return { lanAddresses, trustedHosts: [...lanAddresses, ...extra] }
+  const trustedHosts = bindHost === ALL_INTERFACES_HOST
+    ? [...lanAddresses, ...extra]
+    : bindHost === LOOPBACK_HOST
+      ? [...extra]
+      : [bindHost, ...extra]
+  return { lanAddresses, trustedHosts }
 }
 
 /** Model-visible orientation and acceptance boundary for sessions created through `dsh web`. */
@@ -105,11 +110,12 @@ function webSurfacePrompt(webUrl: string): string {
     + 'Do not start a replacement server unless the user asks; if one is needed, use a managed background job and verify its exact URL.'
 }
 
-/** Resolve the canonical loopback URL from the active Web server. */
+/** Resolve the URL the Web runtime advertises for the active bind. */
 function localWebUrl(ctx: Context): string {
-  const port = ctx.get('webServer')?.port
+  const server = ctx.get('webServer')
+  const port = server?.port
   if (port === undefined) throw new Error('web-app: webServer service missing while resolving Web runtime')
-  return `http://${LOOPBACK_HOST}:${String(port)}`
+  return `http://${server.host === ALL_INTERFACES_HOST ? LOOPBACK_HOST : server.host}:${String(port)}`
 }
 
 /** Dist location is workspace knowledge of this bundle: resolved through the frontend package exports, not configured. */

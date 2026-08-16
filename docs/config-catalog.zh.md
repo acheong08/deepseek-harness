@@ -794,14 +794,14 @@ export interface Config {
 ```ts config-catalog
 /** Gateway config: the listen address. */
 export interface Config {
-  /** Listen host; the two supported values are loopback and all-interfaces. */
-  host: '127.0.0.1' | '0.0.0.0'
+  /** Listen host; accepted values are the default loopback host, all-interfaces, or an internal IPv4 literal. */
+  host: string
   /** Listen port; zero requests an OS-assigned port. */
   port: number
 }
 ```
 
-来源：[`packages/host/webserver/src/index.ts:45`](../packages/host/webserver/src/index.ts)
+来源：[`packages/host/webserver/src/index.ts:57`](../packages/host/webserver/src/index.ts)
 
 <a id="deepseek-aidsh-invariants"></a>
 

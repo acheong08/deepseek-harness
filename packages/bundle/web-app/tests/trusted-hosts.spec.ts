@@ -31,4 +31,9 @@ describe('resolveLanTrust', () => {
     expect(resolveLanTrust('127.0.0.1', ['lab.internal']))
       .toEqual({ lanAddresses: [], trustedHosts: ['lab.internal'] })
   })
+
+  it('trusts an explicit internal IPv4 bind host without advertising a separate LAN URL', () => {
+    expect(resolveLanTrust('100.64.0.9', ['lab.internal']))
+      .toEqual({ lanAddresses: [], trustedHosts: ['100.64.0.9', 'lab.internal'] })
+  })
 })

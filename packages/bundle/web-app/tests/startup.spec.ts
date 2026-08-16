@@ -102,6 +102,20 @@ describe('web command-line provider', () => {
     expect(observed.exits).toEqual([])
   })
 
+  it('accepts an explicit internal IPv4 bind host', async () => {
+    const { values, observed } = await bootProvider(['--host', '100.64.0.9'])
+    expect(values).toEqual({
+      host: '100.64.0.9',
+      trustedHosts: [],
+    })
+    expect(observed.readerConfig).toEqual({
+      host: '100.64.0.9',
+      port: 3080,
+      trustedHosts: [],
+    })
+    expect(observed.exits).toEqual([])
+  })
+
   it('leaves deployment values to each consumer when flags omit them', async () => {
     const { values, observed } = await bootProvider([])
     expect(values).toEqual({ trustedHosts: [] })
@@ -132,6 +146,14 @@ describe('web command-line provider', () => {
   it('rejects the intentionally unsupported all-interfaces host before the consumer activates', async () => {
     const { values, observed } = await bootProvider(['--host', '0.0.0.0'])
     expect(observed.out).toContain('--host 0.0.0.0 is intentionally not supported yet for safety: it would expose remote code execution to the network; use 127.0.0.1 instead')
+    expect(values).toBeUndefined()
+    expect(observed.readerConfig).toBeUndefined()
+    expect(observed.exits).toEqual([1])
+  })
+
+  it('rejects a public bind host before the consumer activates', async () => {
+    const { values, observed } = await bootProvider(['--host', '8.8.8.8'])
+    expect(observed.out).toContain('--host must be 127.0.0.1 or a private/CGNAT IPv4 literal')
     expect(values).toBeUndefined()
     expect(observed.readerConfig).toBeUndefined()
     expect(observed.exits).toEqual([1])

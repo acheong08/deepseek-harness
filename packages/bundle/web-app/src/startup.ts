@@ -9,6 +9,7 @@
 import { Command } from 'commander'
 import type { Context } from '@deepseek-ai/cordis'
 import { parseCmdline } from '@deepseek-ai/dsh-cmdline'
+import { isSupportedBindHost } from '@deepseek-ai/dsh-host-webserver'
 
 /** Stable Cordis plugin name. */
 export const name = 'web-startup'
@@ -57,9 +58,9 @@ Examples:
 
 /**
  * Parse and provide the Web invocation as an ordinary Cordis service. The
- * command's action publishes the flags this invocation named; `--host 0.0.0.0`
- * or a non-numeric `--port` is a usage error, so on rejection (and on `--help`)
- * nothing is provided.
+ * command's action publishes the flags this invocation named; `--host 0.0.0.0`,
+ * an unsupported bind host, or a non-numeric `--port` is a usage error, so on
+ * rejection (and on `--help`) nothing is provided.
  * @param ctx - plugin context carrying the command line.
  */
 export function apply(ctx: Context): void {
@@ -68,6 +69,9 @@ export function apply(ctx: Context): void {
     const options = program.opts<WebOptions>()
     if (options.host === '0.0.0.0') {
       program.error('error: --host 0.0.0.0 is intentionally not supported yet for safety: it would expose remote code execution to the network; use 127.0.0.1 instead')
+    }
+    if (options.host !== undefined && !isSupportedBindHost(options.host)) {
+      program.error(`error: --host must be 127.0.0.1 or a private/CGNAT IPv4 literal such as 100.64.0.10, got ${JSON.stringify(options.host)}`)
     }
     if (options.port !== undefined && !/^\d+$/.test(options.port)) {
       program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)

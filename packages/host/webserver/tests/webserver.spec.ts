@@ -86,6 +86,14 @@ async function upgrade(port: number, path: string): Promise<ReturnType<typeof co
 }
 
 describe('real Loader composition', () => {
+  it('accepts the default loopback host, wildcard host, and explicit internal IPv4 literals in config validation', () => {
+    expect(HttpServer.Config({ host: '127.0.0.1', port: 0 }).host).toBe('127.0.0.1')
+    expect(HttpServer.Config({ host: '0.0.0.0', port: 0 }).host).toBe('0.0.0.0')
+    expect(HttpServer.Config({ host: '100.64.0.9', port: 0 }).host).toBe('100.64.0.9')
+    expect(() => HttpServer.Config({ host: '8.8.8.8', port: 0 })).toThrow()
+    expect(() => HttpServer.Config({ host: 'mesh.internal', port: 0 })).toThrow()
+  })
+
   // Real-Loader composition resolves workspace packages through tsx at test
   // time; first resolution after the host/client program split is slow enough
   // to trip the default 5s budget on cold caches.

@@ -31,14 +31,14 @@ interface WebRoute {
 ```ts type-equiv
 /** Gateway config: the listen address. */
 interface Config {
-  /** Listen host; the two supported values are loopback and all-interfaces. */
-  host: '127.0.0.1' | '0.0.0.0'
+  /** Listen host; accepted values are the default loopback host, all-interfaces, or an internal IPv4 literal. */
+  host: string
   /** Listen port; zero requests an OS-assigned port. */
   port: number
 }
 ```
 
-`host` 只接受 `127.0.0.1`（默认姿态）和 `0.0.0.0`（刻意的网络暴露）；没有 TLS、认证或 origin 策略，因此绑定到非回环地址会把服务器暴露给该网络。dist 位置是认领席位的前端插件的组装事实。
+`host` 接受 `127.0.0.1`（默认姿态）、`0.0.0.0`（刻意的网络暴露）或 RFC1918 / `100.64.0.0/10` 内部 IPv4 字面量；没有 TLS、认证或 origin 策略，因此绑定到非回环地址会把服务器暴露给该网络。dist 位置是认领席位的前端插件的组装事实。
 
 ## 服务
 
