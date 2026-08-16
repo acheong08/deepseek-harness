@@ -113,9 +113,10 @@ function webSurfacePrompt(webUrl: string): string {
 /** Resolve the URL the Web runtime advertises for the active bind. */
 function localWebUrl(ctx: Context): string {
   const server = ctx.get('webServer')
-  const port = server?.port
-  if (port === undefined) throw new Error('web-app: webServer service missing while resolving Web runtime')
-  return `http://${server.host === ALL_INTERFACES_HOST ? LOOPBACK_HOST : server.host}:${String(port)}`
+  if (server === undefined || server.port === undefined) {
+    throw new Error('web-app: webServer service missing while resolving Web runtime')
+  }
+  return `http://${server.host === ALL_INTERFACES_HOST ? LOOPBACK_HOST : server.host}:${String(server.port)}`
 }
 
 /** Dist location is workspace knowledge of this bundle: resolved through the frontend package exports, not configured. */
