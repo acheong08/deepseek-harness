@@ -18,7 +18,7 @@ export type DirectoryPickerEnv = Readonly<
 
 /** Host facts the backend choice is a pure function of, sampled once at boot. */
 export interface DirectoryPickerHostFacts {
-  /** Effective webserver bind host (the schema's closed loopback/all-interfaces union). */
+  /** Effective webserver bind host. */
   bindHost: HttpServerConfig['host']
   /** Host process platform. */
   platform: NodeJS.Platform
