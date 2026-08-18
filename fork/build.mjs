@@ -14,19 +14,19 @@
  * manifests for publication, and packs tarballs into `fork/artifacts/`.
  *
  * Usage:
- *   node fork/build.mjs [--scope @preambient] [--version 0.1.0-rc.6]
+ *   node fork/build.mjs [--scope @preambient] [--version 0.1.0-rc.7]
  *                       [--ref HEAD] [--out fork/artifacts] [--keep]
  */
 
 import { cpSync, existsSync, globSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { execSync } from 'node:child_process'
+import { execFileSync, execSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
+import { parsePublishedVersions, publicationDependencyRange, resolveForkVersion } from './versioning.mjs'
 
 const DEFAULTS = {
   scope: '@preambient',
-  version: '0.1.0-rc.6',
   ref: 'HEAD',
   out: 'fork/artifacts',
 }
@@ -121,11 +121,32 @@ function applyExactReplacements(text, scope, replacements) {
   return out
 }
 
+/**
+ * Read every published version of one fork package, treating an absent package as empty.
+ * @param {string} name - Full scoped package name.
+ * @returns {string[]} Published versions in registry order.
+ */
+function readRegistryVersions(name) {
+  try {
+    const output = execFileSync('npm', ['view', name, 'versions', '--json'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    return parsePublishedVersions(output)
+  } catch (error) {
+    const stderr = error !== null && typeof error === 'object' && 'stderr' in error
+      ? String(error.stderr)
+      : ''
+    if (stderr.includes('E404') || stderr.includes('404 Not Found')) return []
+    throw new Error(`npm registry lookup failed for ${name}`)
+  }
+}
+
 function main() {
   const { values } = parseArgs({
     options: {
       scope: { type: 'string', default: DEFAULTS.scope },
-      version: { type: 'string', default: DEFAULTS.version },
+      version: { type: 'string' },
       ref: { type: 'string', default: DEFAULTS.ref },
       out: { type: 'string', default: DEFAULTS.out },
       keep: { type: 'boolean', default: false },
@@ -133,20 +154,27 @@ function main() {
     allowPositionals: false,
   })
   const scope = values.scope
-  const version = values.version
-  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
-    throw new Error(`invalid --version ${JSON.stringify(version)}`)
-  }
 
   const repoRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim()
   const oldNew = new Map(FORK_PACKAGES.map(p => [`@deepseek-ai/${p.suffix}`, `${scope}/${p.suffix}`]))
   const forkNames = new Set([...oldNew.values()])
+  const packageNames = FORK_PACKAGES.map(pkg => `${scope}/${pkg.suffix}`)
 
   // Stage a detached worktree so the working tree is never modified.
   const worktree = join(tmpdir(), `dsh-fork-${Date.now()}`)
   run('git', ['worktree', 'add', '--detach', worktree, values.ref], repoRoot)
 
   try {
+    const upstreamManifest = JSON.parse(readFileSync(join(worktree, 'apps/cli/package.json'), 'utf8'))
+    const upstreamVersion = upstreamManifest.version
+    const version = resolveForkVersion({
+      explicitVersion: values.version,
+      upstreamVersion,
+      packageNames,
+      readPublishedVersions: readRegistryVersions,
+    })
+    console.log(`fork build: upstream ${upstreamVersion}; publishing ${version}`)
+
     // 1. Rename the four packages' `name` fields and every workspace reference
     //    to them (dependency keys), across all workspace manifests.
     let manifests = 0
@@ -213,9 +241,8 @@ function main() {
         const deps = manifest[section]
         if (!deps || typeof deps !== 'object') continue
         for (const key of Object.keys(deps)) {
-          deps[key] = forkNames.has(key)
-            ? `^${version}`
-            : VENDORED[key] ?? (key.startsWith('@deepseek-ai/dsh-') ? `^${version}` : deps[key])
+          deps[key] = VENDORED[key]
+            ?? publicationDependencyRange(key, deps[key], forkNames, version, upstreamVersion)
         }
       }
       writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
