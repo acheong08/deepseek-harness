@@ -77,6 +77,35 @@ Notes:
 - `--access public` is unnecessary because every manifest carries `publishConfig.access: "public"`.
 - npm versions are immutable. Rebuilding an already published version requires a new version rather than another publish attempt.
 
+## Update an existing installation
+
+Profiles are durable user state under `$DSH_HOME/profiles` (`~/.dsh/profiles` when `DSH_HOME` is unset); installing a newer fork package does not replace a profile's manifest or user patch. Back up the Harness home, then update only the fork-owned bundle name in `profiles/web/package.json`:
+
+```json
+{
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@preambient/dsh-web-app"
+      ]
+    }
+  }
+}
+```
+
+Keep the existing `dependencies`, other manifest fields, `profiles/web/cordis.patch.yml`, and the home-level configuration files unchanged. For a non-default build scope, replace `@preambient` with that scope. Do not add the fork web-app with `dsh plugin add`: the web-app bundle ships with the forked CLI, and adding it as a profile dependency can leave the upstream and fork layers in the same bundle list.
+
+Verify the stored layer and composed configuration before starting the server:
+
+```sh
+grep -A4 '"bundles"' "${DSH_HOME:-$HOME/.dsh}/profiles/web/package.json"
+dsh --profile web --dump-default-config | grep '@preambient/dsh-web-app'
+dsh web --host 192.168.1.5 --port 0
+```
+
+The first command should show one fork-scoped web-app bundle and no `@deepseek-ai/dsh-web-app`. The config dump must label the fork bundle before the server test. If the profile has intentional custom bundle layers, preserve their order and replace only the upstream web-app entry.
+
 ## Maintenance
 
 - **Upstream release:** build from the release ref. Automatic selection uses that ref's CLI version for untouched upstream dependencies and chooses a free fork version.
