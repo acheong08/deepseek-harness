@@ -9,7 +9,6 @@ import {
   type ConnectionState,
 } from './connection.ts'
 import { createWebConnectionRpc, type RpcFetch, type RpcStreamOpen } from './rpc.ts'
-import { isLoopbackHostname } from '../loopback-hostname.ts'
 import type { ClientConnectionRpc } from '../rpc.ts'
 import { resolveConnectionConfig } from '../recovery-config.ts'
 
@@ -245,7 +244,7 @@ export function installConnection(ctx: Context, options: ConnectionInstallOption
     publishState(undefined)
   }
   const handle: ConnectionHandle = {
-    isLoopback: transport?.ownsHost === true || pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
+    isLoopback: true,
     generation: {
       getSnapshot: () => generation,
       subscribe: (listener) => {
