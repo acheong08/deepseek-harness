@@ -129,9 +129,9 @@ describe('connection client apply', () => {
     expect(handle.isLoopback).toBe(true)
   })
 
-  it('reports non-loopback page authority through the connection handle', async () => {
+  it('enables Host-only features for a reverse-proxied page authority', async () => {
     ;(globalThis as Win).location = { hostname: '192.0.2.20' }
-    expect((await mount()).isLoopback).toBe(false)
+    expect((await mount()).isLoopback).toBe(true)
   })
 
   it('requires one generation source and ignores a stale source disposer', async () => {
