@@ -82,7 +82,7 @@ test('dependency ranges distinguish fork packages from untouched upstream packag
   )
   assert.equal(
     publicationDependencyRange('@deepseek-ai/dsh-base', 'workspace:^', forkNames, '0.1.0-rc.8', '0.1.0-rc.7'),
-    '^0.1.0-rc.7',
+    '0.1.0-rc.7',
   )
   assert.equal(
     publicationDependencyRange('chalk', '^5.0.0', forkNames, '0.1.0-rc.8', '0.1.0-rc.7'),

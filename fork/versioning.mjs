@@ -88,7 +88,7 @@ export function resolveUpstreamDependencyVersion(upstreamVersion, readTaggedVers
  */
 export function publicationDependencyRange(name, currentRange, forkNames, forkVersion, upstreamVersion) {
   if (forkNames.has(name)) return `^${forkVersion}`
-  if (name.startsWith('@deepseek-ai/dsh-')) return `^${upstreamVersion}`
+  if (name.startsWith('@deepseek-ai/dsh-')) return upstreamVersion
   return currentRange
 }
 
