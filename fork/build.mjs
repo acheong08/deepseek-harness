@@ -24,7 +24,12 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { parsePublishedVersions, publicationDependencyRange, resolveForkVersion } from './versioning.mjs'
+import {
+  parsePublishedVersions,
+  publicationDependencyRange,
+  resolveForkVersion,
+  resolveUpstreamDependencyVersion,
+} from './versioning.mjs'
 
 const DEFAULTS = {
   scope: '@preambient',
@@ -177,6 +182,19 @@ function readRegistryVersions(name) {
   }
 }
 
+/** Read one package's version for an npm dist-tag. */
+function readRegistryTagVersions(name, tag) {
+  try {
+    const output = execFileSync('npm', ['view', name, `dist-tags.${tag}`, '--json'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    return parsePublishedVersions(output)
+  } catch {
+    throw new Error(`npm registry tag lookup failed for ${name}@${tag}`)
+  }
+}
+
 function main() {
   const { values } = parseArgs({
     options: {
@@ -202,13 +220,17 @@ function main() {
   try {
     const upstreamManifest = JSON.parse(readFileSync(join(worktree, 'apps/cli/package.json'), 'utf8'))
     const upstreamVersion = upstreamManifest.version
+    const upstreamDependencyVersion = resolveUpstreamDependencyVersion(
+      upstreamVersion,
+      tag => readRegistryTagVersions('@deepseek-ai/dsh', tag),
+    )
     const version = resolveForkVersion({
       explicitVersion: values.version,
       upstreamVersion,
       packageNames,
       readPublishedVersions: readRegistryVersions,
     })
-    console.log(`fork build: upstream ${upstreamVersion}; publishing ${version}`)
+    console.log(`fork build: upstream source ${upstreamVersion}; upstream npm dependencies ${upstreamDependencyVersion}; publishing ${version}`)
 
     // 1. Rename the seven packages' `name` fields and every workspace reference
     //    to them (dependency keys), across all workspace manifests.
@@ -297,7 +319,7 @@ function main() {
         if (!deps || typeof deps !== 'object') continue
         for (const key of Object.keys(deps)) {
           deps[key] = VENDORED[key]
-            ?? publicationDependencyRange(key, deps[key], forkNames, version, upstreamVersion)
+            ?? publicationDependencyRange(key, deps[key], forkNames, version, upstreamDependencyVersion)
         }
       }
       writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
