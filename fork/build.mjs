@@ -4,9 +4,8 @@
  *
  * The fork relaxes the `dsh web` bind host and lets its reverse-proxied browser
  * use Host-only APIs (see fork/README.md). Publishing those changes
- * without mirroring the whole ~200-package monorepo means republishing just
- * nine packages under a new scope, with every other dependency pinned to the
- * published upstream `@deepseek-ai/*` versions.
+ * without mirroring the whole ~200-package monorepo means applying the private
+ * patches to the published upstream source and republishing seven packages.
  *
  * This script reproduces that from a committed ref: it stages a detached
  * worktree (the working tree is never modified), renames the fork
@@ -41,13 +40,18 @@ const DEFAULTS = {
 export const FORK_PACKAGES = [
   { dir: 'packages/host/webserver', suffix: 'dsh-host-webserver' },
   { dir: 'packages/client/connection', suffix: 'dsh-client-connection' },
-  { dir: 'packages/client/file-upload', suffix: 'dsh-client-file-upload' },
-  { dir: 'packages/util/http-proxy', suffix: 'dsh-http-proxy' },
   { dir: 'packages/llm/llm-pi-ai', suffix: 'dsh-llm-pi-ai' },
   { dir: 'packages/bundle/base', suffix: 'dsh-base' },
   { dir: 'packages/boot/app-boot', suffix: 'dsh-app-boot' },
   { dir: 'packages/bundle/web-app', suffix: 'dsh-web-app' },
   { dir: 'apps/cli', suffix: 'dsh' },
+]
+
+/** Private changes applied over the exact published upstream source. */
+export const FORK_PATCHES = [
+  'fork/patches/0001-feat-allow-internal-web-bind-hosts.patch',
+  'fork/patches/always-loopback.patch',
+  'fork/patches/0001-feat-llm-pi-ai-add-sessionHeader-config-for-per-sess.patch',
 ]
 
 // These Service Definitions are peers of multiple upstream providers. Keep
@@ -67,12 +71,6 @@ export const SRC_REPLACE = {
     ['@deepseek-ai/dsh-client-connection', 'dsh-client-connection'],
     ['@deepseek-ai/dsh-host-webserver', 'dsh-host-webserver'],
   ],
-  'packages/client/file-upload': [
-    ['@deepseek-ai/dsh-client-file-upload', 'dsh-client-file-upload'],
-  ],
-  'packages/util/http-proxy': [
-    ['@deepseek-ai/dsh-http-proxy', 'dsh-http-proxy'],
-  ],
   'packages/llm/llm-pi-ai': [
     ['@deepseek-ai/dsh-llm-pi-ai', 'dsh-llm-pi-ai'],
   ],
@@ -88,14 +86,10 @@ export const SRC_REPLACE = {
   'packages/bundle/web-app': [
     ['@deepseek-ai/dsh-web-app', 'dsh-web-app'],
     ['@deepseek-ai/dsh-client-connection', 'dsh-client-connection'],
-    ['@deepseek-ai/dsh-client-file-upload', 'dsh-client-file-upload'],
     ['@deepseek-ai/dsh-host-webserver', 'dsh-host-webserver'],
     ['@deepseek-ai/dsh-app-boot', 'dsh-app-boot'],
   ],
-  'apps/cli': [
-    ['@deepseek-ai/dsh-app-boot', 'dsh-app-boot'],
-    ['@deepseek-ai/dsh-http-proxy', 'dsh-http-proxy'],
-  ],
+  'apps/cli': [['@deepseek-ai/dsh-app-boot', 'dsh-app-boot']],
 }
 
 // Names that are a prefix of other package names and therefore need an
@@ -104,7 +98,7 @@ const SRC_REPLACE_EXACT = {
   'apps/cli': [['@deepseek-ai/dsh', 'dsh']],
 }
 
-// Vendored upstream packages the nine fork packages depend on, at the ranges
+// Vendored upstream packages the fork packages depend on, at the ranges
 // upstream published. Update here if a future release republishes vendor.
 const VENDORED = {
   '@deepseek-ai/cordis': '^4.0.1',
@@ -142,8 +136,6 @@ export const PACKAGE_IDENTITY_FILES = ['cordis.patch.yml', 'tsdown.config.ts']
 export const PUBLISH_ORDER = [
   'dsh-host-webserver',
   'dsh-client-connection',
-  'dsh-client-file-upload',
-  'dsh-http-proxy',
   'dsh-llm-pi-ai',
   'dsh-base',
   'dsh-app-boot',
@@ -231,24 +223,29 @@ function main() {
   const forkNames = new Set([...oldNew.values()])
   const packageNames = FORK_PACKAGES.map(pkg => `${scope}/${pkg.suffix}`)
 
-  // Stage a detached worktree so the working tree is never modified.
+  const sourceManifest = JSON.parse(execFileSync(
+    'git', ['show', `${values.ref}:apps/cli/package.json`], { cwd: repoRoot, encoding: 'utf8' },
+  ))
+  const sourceVersion = sourceManifest.version
+  const upstreamDependencyVersion = resolveUpstreamDependencyVersion(
+    sourceVersion,
+    tag => readRegistryTagVersions('@deepseek-ai/dsh', tag),
+  )
+  const upstreamRef = `dsh-v${upstreamDependencyVersion}`
+
+  // Stage the matching published source, then apply only the private changes.
   const worktree = join(tmpdir(), `dsh-fork-${Date.now()}`)
-  run('git', ['worktree', 'add', '--detach', worktree, values.ref], repoRoot)
+  run('git', ['worktree', 'add', '--detach', worktree, upstreamRef], repoRoot)
 
   try {
-    const upstreamManifest = JSON.parse(readFileSync(join(worktree, 'apps/cli/package.json'), 'utf8'))
-    const upstreamVersion = upstreamManifest.version
-    const upstreamDependencyVersion = resolveUpstreamDependencyVersion(
-      upstreamVersion,
-      tag => readRegistryTagVersions('@deepseek-ai/dsh', tag),
-    )
+    for (const patch of FORK_PATCHES) run('git', ['apply', resolve(repoRoot, patch)], worktree)
     const version = resolveForkVersion({
       explicitVersion: values.version,
-      upstreamVersion,
+      upstreamVersion: sourceVersion,
       packageNames,
       readPublishedVersions: readRegistryVersions,
     })
-    console.log(`fork build: upstream source ${upstreamVersion}; upstream npm dependencies ${upstreamDependencyVersion}; publishing ${version}`)
+    console.log(`fork build: source channel ${sourceVersion}; published base ${upstreamDependencyVersion}; publishing ${version}`)
 
     // 1. Rename fork packages and their dependency keys across all workspace
     //    manifests.
@@ -311,14 +308,6 @@ function main() {
           const key = `${name}${suffix}`
           if (!tsconfig.includes(`"${key}"`)) aliasRows.push(`      "${key}": ["${target}"]`)
         }
-      }
-    }
-    for (const name of [
-      '@deepseek-ai/dsh-client-file-upload/remote',
-      `${scope}/dsh-client-file-upload/remote`,
-    ]) {
-      if (!tsconfig.includes(`"${name}"`)) {
-        aliasRows.push(`      "${name}": ["./packages/client/file-upload/lib/typert.remote-client.d.ts"]`)
       }
     }
     const aliasMarker = '      // END generated package aliases'

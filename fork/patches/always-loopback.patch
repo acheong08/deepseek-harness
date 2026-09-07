@@ -1,0 +1,18 @@
+diff --git a/packages/client/connection/src/client/index.ts b/packages/client/connection/src/client/index.ts
+--- a/packages/client/connection/src/client/index.ts
++++ b/packages/client/connection/src/client/index.ts
+@@ -14,6 +14,5 @@ import { createFixtureConnectionRpc } from './fixture.ts'
+ import { createFixtureConnectionRpc } from './fixture.ts'
+ import { createWebConnectionRpc, type RpcFetch, type RpcStreamOpen } from './rpc.ts'
+-import { isLoopbackHostname } from '../loopback-hostname.ts'
+ import type { ClientConnectionRpc } from '../rpc.ts'
+
+ declare module '@deepseek-ai/cordis' {
+@@ -227,6 +226,6 @@ export function apply(ctx: Context): void {
+   }
+   const handle: ConnectionHandle = {
+-    isLoopback: transport?.ownsHost === true || pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
++    isLoopback: true,
+     generation: {
+       getSnapshot: () => generation,
+       subscribe: (listener) => {

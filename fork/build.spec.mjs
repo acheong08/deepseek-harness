@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  applyReplacements, FORK_PACKAGES, PACKAGE_IDENTITY_FILES, PINNED_UPSTREAM_ROOTS, PUBLISH_ORDER, SRC_REPLACE,
+  applyReplacements, FORK_PACKAGES, FORK_PATCHES, PACKAGE_IDENTITY_FILES, PINNED_UPSTREAM_ROOTS, PUBLISH_ORDER, SRC_REPLACE,
 } from './build.mjs'
 
 describe('fork build package identities', () => {
@@ -8,8 +8,6 @@ describe('fork build package identities', () => {
     expect(FORK_PACKAGES.map(pkg => pkg.suffix)).toEqual([
       'dsh-host-webserver',
       'dsh-client-connection',
-      'dsh-client-file-upload',
-      'dsh-http-proxy',
       'dsh-llm-pi-ai',
       'dsh-base',
       'dsh-app-boot',
@@ -19,8 +17,6 @@ describe('fork build package identities', () => {
     expect(PUBLISH_ORDER).toEqual([
       'dsh-host-webserver',
       'dsh-client-connection',
-      'dsh-client-file-upload',
-      'dsh-http-proxy',
       'dsh-llm-pi-ai',
       'dsh-base',
       'dsh-app-boot',
@@ -29,24 +25,19 @@ describe('fork build package identities', () => {
     ])
   })
 
+  it('applies only the private changes over the published source baseline', () => {
+    expect(FORK_PATCHES).toEqual([
+      'fork/patches/0001-feat-allow-internal-web-bind-hosts.patch',
+      'fork/patches/always-loopback.patch',
+      'fork/patches/0001-feat-llm-pi-ai-add-sessionHeader-config-for-per-sess.patch',
+    ])
+  })
+
   it('pins shared upstream Service Definitions at the installation root', () => {
     expect(PINNED_UPSTREAM_ROOTS).toEqual([
       '@deepseek-ai/dsh-attachment',
       '@deepseek-ai/dsh-llm',
     ])
-  })
-
-  it('replaces upstream packages that do not exist on the current npm alpha channel', () => {
-    expect(applyReplacements(
-      "name: '@deepseek-ai/dsh-client-file-upload'",
-      '@preambient',
-      SRC_REPLACE['packages/bundle/web-app'],
-    )).toBe("name: '@preambient/dsh-client-file-upload'")
-    expect(applyReplacements(
-      "import '@deepseek-ai/dsh-http-proxy'",
-      '@preambient',
-      SRC_REPLACE['apps/cli'],
-    )).toBe("import '@preambient/dsh-http-proxy'")
   })
 
   it('mounts the forked pi-ai provider from the forked base bundle', () => {
