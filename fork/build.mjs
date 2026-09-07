@@ -5,11 +5,11 @@
  * The fork relaxes the `dsh web` bind host and lets its reverse-proxied browser
  * use Host-only APIs (see fork/README.md). Publishing those changes
  * without mirroring the whole ~200-package monorepo means republishing just
- * seven packages under a new scope, with every other dependency pinned to the
+ * nine packages under a new scope, with every other dependency pinned to the
  * published upstream `@deepseek-ai/*` versions.
  *
  * This script reproduces that from a committed ref: it stages a detached
- * worktree (the working tree is never modified), renames the seven fork
+ * worktree (the working tree is never modified), renames the nine fork
  * packages and every workspace reference to them, rebuilds, rewrites their
  * manifests for publication, and packs tarballs into `fork/artifacts/`.
  *
@@ -37,10 +37,12 @@ const DEFAULTS = {
   out: 'fork/artifacts',
 }
 
-// The seven packages this fork republishes. `suffix` is the unscoped npm name.
+// The nine packages this fork republishes. `suffix` is the unscoped npm name.
 export const FORK_PACKAGES = [
   { dir: 'packages/host/webserver', suffix: 'dsh-host-webserver' },
   { dir: 'packages/client/connection', suffix: 'dsh-client-connection' },
+  { dir: 'packages/client/file-upload', suffix: 'dsh-client-file-upload' },
+  { dir: 'packages/util/http-proxy', suffix: 'dsh-http-proxy' },
   { dir: 'packages/llm/llm-pi-ai', suffix: 'dsh-llm-pi-ai' },
   { dir: 'packages/bundle/base', suffix: 'dsh-base' },
   { dir: 'packages/boot/app-boot', suffix: 'dsh-app-boot' },
@@ -57,6 +59,12 @@ export const SRC_REPLACE = {
     ['@deepseek-ai/dsh-client-connection', 'dsh-client-connection'],
     ['@deepseek-ai/dsh-host-webserver', 'dsh-host-webserver'],
   ],
+  'packages/client/file-upload': [
+    ['@deepseek-ai/dsh-client-file-upload', 'dsh-client-file-upload'],
+  ],
+  'packages/util/http-proxy': [
+    ['@deepseek-ai/dsh-http-proxy', 'dsh-http-proxy'],
+  ],
   'packages/llm/llm-pi-ai': [
     ['@deepseek-ai/dsh-llm-pi-ai', 'dsh-llm-pi-ai'],
   ],
@@ -72,10 +80,14 @@ export const SRC_REPLACE = {
   'packages/bundle/web-app': [
     ['@deepseek-ai/dsh-web-app', 'dsh-web-app'],
     ['@deepseek-ai/dsh-client-connection', 'dsh-client-connection'],
+    ['@deepseek-ai/dsh-client-file-upload', 'dsh-client-file-upload'],
     ['@deepseek-ai/dsh-host-webserver', 'dsh-host-webserver'],
     ['@deepseek-ai/dsh-app-boot', 'dsh-app-boot'],
   ],
-  'apps/cli': [['@deepseek-ai/dsh-app-boot', 'dsh-app-boot']],
+  'apps/cli': [
+    ['@deepseek-ai/dsh-app-boot', 'dsh-app-boot'],
+    ['@deepseek-ai/dsh-http-proxy', 'dsh-http-proxy'],
+  ],
 }
 
 // Names that are a prefix of other package names and therefore need an
@@ -84,7 +96,7 @@ const SRC_REPLACE_EXACT = {
   'apps/cli': [['@deepseek-ai/dsh', 'dsh']],
 }
 
-// Vendored upstream packages the seven fork packages depend on, at the ranges
+// Vendored upstream packages the nine fork packages depend on, at the ranges
 // upstream published. Update here if a future release republishes vendor.
 const VENDORED = {
   '@deepseek-ai/cordis': '^4.0.1',
@@ -115,10 +127,6 @@ const MANIFEST_GLOBS = [
   'python/sdk-runtime/package.json',
 ]
 
-const TEST_SOURCE_GLOBS = [
-  'packages/*/*/tests/**/*',
-]
-
 /** Package-local build and composition files that can stamp package identities. */
 export const PACKAGE_IDENTITY_FILES = ['cordis.patch.yml', 'tsdown.config.ts']
 
@@ -126,6 +134,8 @@ export const PACKAGE_IDENTITY_FILES = ['cordis.patch.yml', 'tsdown.config.ts']
 export const PUBLISH_ORDER = [
   'dsh-host-webserver',
   'dsh-client-connection',
+  'dsh-client-file-upload',
+  'dsh-http-proxy',
   'dsh-llm-pi-ai',
   'dsh-base',
   'dsh-app-boot',
@@ -232,7 +242,7 @@ function main() {
     })
     console.log(`fork build: upstream source ${upstreamVersion}; upstream npm dependencies ${upstreamDependencyVersion}; publishing ${version}`)
 
-    // 1. Rename the seven packages' `name` fields and every workspace reference
+    // 1. Rename the nine packages' `name` fields and every workspace reference
     //    to them (dependency keys), across all workspace manifests.
     let manifests = 0
     for (const glob of MANIFEST_GLOBS) {
@@ -275,30 +285,45 @@ function main() {
       console.log(`fork build: rewrote ${files} file(s) under ${pkg.dir}`)
     }
 
-    // Workspace tests can import package-private source subpaths that tsconfig
-    // paths do not cover. Keep those imports aligned with the temporary
-    // manifest renames so the repository build can typecheck them.
-    const workspaceReplacements = FORK_PACKAGES.map(pkg => [
-      `@deepseek-ai/${pkg.suffix}`,
-      pkg.suffix,
-    ])
-    let testFiles = 0
-    for (const glob of TEST_SOURCE_GLOBS) {
-      for (const rel of globSync(glob, { cwd: worktree })) {
-        const path = join(worktree, rel)
-        if (!statSync(path).isFile()) continue
-        const text = readFileSync(path, 'utf8')
-        const out = applyExactReplacements(text, scope, workspaceReplacements)
-        if (out !== text) { writeFileSync(path, out); testFiles += 1 }
+    // The repository build compiles source-plane imports before lib exists.
+    // Add temporary aliases for fork names and package subpaths without
+    // rewriting unrelated workspace source files.
+    const tsconfigPath = join(worktree, 'tsconfig.base.json')
+    const tsconfig = readFileSync(tsconfigPath, 'utf8')
+    const aliasRows = []
+    for (const pkg of FORK_PACKAGES) {
+      const source = `./${pkg.dir}/src`
+      const names = [`@deepseek-ai/${pkg.suffix}`, `${scope}/${pkg.suffix}`]
+      for (const name of names) {
+        for (const [suffix, target] of [
+          ['', source],
+          ['/*', `${source}/*`],
+          ['/src/*', `${source}/*`],
+        ]) {
+          const key = `${name}${suffix}`
+          if (!tsconfig.includes(`"${key}"`)) aliasRows.push(`      "${key}": ["${target}"]`)
+        }
       }
     }
-    console.log(`fork build: rewrote ${testFiles} workspace test file(s)`)
+    for (const name of [
+      '@deepseek-ai/dsh-client-file-upload/remote',
+      `${scope}/dsh-client-file-upload/remote`,
+    ]) {
+      if (!tsconfig.includes(`"${name}"`)) {
+        aliasRows.push(`      "${name}": ["./packages/client/file-upload/lib/typert.remote-client.d.ts"]`)
+      }
+    }
+    const aliasMarker = '      // END generated package aliases'
+    if (!tsconfig.includes(aliasMarker)) throw new Error('tsconfig package-alias marker is missing')
+    const withAliases = tsconfig.replace(aliasMarker, `${aliasRows.length === 0 ? '' : `,\n${aliasRows.join(',\n')}\n`}${aliasMarker}`)
+    writeFileSync(tsconfigPath, withAliases)
+    console.log(`fork build: added ${aliasRows.length} temporary TypeScript alias(es)`)
 
     // 3. Install and build the library output.
     run('pnpm', ['install'], worktree)
     run('pnpm', ['run', 'build:lib'], worktree)
 
-    // 4. Pack the seven packages with publication manifests.
+    // 4. Pack the nine packages with publication manifests.
     const outDir = resolve(repoRoot, values.out)
     rmSync(outDir, { recursive: true, force: true })
     mkdirSync(outDir, { recursive: true })
