@@ -1,0 +1,95 @@
+From 10cde8541cf76fed9cc73a18a1cadc2d5c9419c4 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ra=C3=BAl=20L=C3=A1zaro=20S=C3=A1nchez?=
+ <contact@raullazaro.com>
+Date: Fri, 4 Sep 2026 16:30:46 +0000
+Subject: [PATCH] feat(llm-pi-ai): add sessionHeader config for per-session
+ provider routing
+
+Adds a new optional `sessionHeader` field to the provider profile
+configuration. When set, the adapter sends the named header with the
+current session id as its value on every request.
+
+This addresses the OpenCode Go requirement for an `x-opencode-session`
+header on every inference request for per-conversation routing and
+optimization. Previously, users could only set a static value via the
+`headers` config, which meant all sessions shared the same id.
+
+Closes discussion: https://github.com/deepseek-ai/deepseek-harness/discussions/5495
+---
+ packages/llm/llm-pi-ai/src/adapter.ts | 24 +++++++++++++++++++++---
+ packages/llm/llm-pi-ai/src/config.ts  |  8 ++++++++
+ 2 files changed, 29 insertions(+), 3 deletions(-)
+
+diff --git a/packages/llm/llm-pi-ai/src/adapter.ts b/packages/llm/llm-pi-ai/src/adapter.ts
+index e20b8e0072..f2b84c1c55 100644
+--- a/packages/llm/llm-pi-ai/src/adapter.ts
++++ b/packages/llm/llm-pi-ai/src/adapter.ts
+@@ -201,11 +201,25 @@ function reasoningInfo(
+   }
+ }
+
+-/** Merge deployment headers while removing case-insensitive attribution collisions. */
+-function requestHeaders(headers: Readonly<Record<string, string>> | undefined): Record<string, string> {
++/**
++ * Merge deployment headers while removing case-insensitive attribution
++ * collisions.  When `sessionHeader` is set and `sessionId` is available the
++ * named header is included so providers that route by per-conversation affinity
++ * (e.g. OpenCode Go's `x-opencode-session`) receive a stable id per session.
++ */
++function requestHeaders(
++  headers: Readonly<Record<string, string>> | undefined,
++  sessionHeader?: string,
++  sessionId?: string,
++): Record<string, string> {
+   const attribution = attributionHeaders()
+   const reserved = new Set(Object.keys(attribution).map(name => name.toLowerCase()))
++  const dynamic: Record<string, string> = {}
++  if (sessionHeader && sessionId) {
++    dynamic[sessionHeader] = sessionId
++  }
+   return {
++    ...dynamic,
+     ...Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !reserved.has(name.toLowerCase()))),
+     ...attribution,
+   }
+@@ -380,7 +394,11 @@ export class PiAiAdapter extends LlmAdapter {
+         signal: watchdog.signal,
+         // Profile headers are deployment-owned; attribution names are
+         // Harness-owned and therefore win collisions.
+-        headers: requestHeaders(profile.headers),
++        headers: requestHeaders(
++          profile.headers,
++          profile.sessionHeader,
++          options.sessionId === undefined ? undefined : String(options.sessionId),
++        ),
+       })
+       const iterator = toStreamChunks(events, model.contextWindow, options.signal)[Symbol.asyncIterator]()
+       let exhausted = false
+diff --git a/packages/llm/llm-pi-ai/src/config.ts b/packages/llm/llm-pi-ai/src/config.ts
+index 8da589cc39..099971d84a 100644
+--- a/packages/llm/llm-pi-ai/src/config.ts
++++ b/packages/llm/llm-pi-ai/src/config.ts
+@@ -146,6 +146,13 @@ export interface PiAiProviderProfile {
+   defaultInput?: PiAiModality[]
+   /** Provider request headers, validated against Fetch when the profile resolves; Harness attribution wins reserved names. */
+   headers?: Record<string, string>
++  /**
++   * When set, the adapter sends this header name with the current session id as
++   * its value on every request. Providers that route or optimise by
++   * per-conversation affinity (e.g. OpenCode Go's `x-opencode-session`) use
++   * this instead of a static `headers` entry to get a unique id per session.
++   */
++  sessionHeader?: string
+   /** Provider-neutral pi-ai reasoning level. */
+   reasoning?: ModelThinkingLevel
+   /** Token budgets used by reasoning providers that support them. */
+@@ -323,6 +330,7 @@ const profile = z.object({
+   defaultMaxTokens: z.number().step(1).min(1).default(DEFAULT_MAX_TOKENS),
+   defaultInput: z.array(z.union(MODALITIES)).default([...DEFAULT_INPUT]),
+   headers: z.dict(z.string()),
++  sessionHeader: z.string(),
+   reasoning: z.union(THINKING_LEVELS),
+   thinkingBudgets,
+   cacheRetention: z.union(['none', 'short', 'long']),
+--
+2.55.0

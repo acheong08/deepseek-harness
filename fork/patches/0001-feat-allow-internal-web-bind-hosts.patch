@@ -1,0 +1,275 @@
+From 88ef81057822e4f568bc0d8fa19261f1b615b9be Mon Sep 17 00:00:00 2001
+From: "copilot-swe-agent[bot]" <198982749+Copilot@users.noreply.github.com>
+Date: Sun, 16 Aug 2026 03:57:50 +0000
+Subject: [PATCH] feat: allow internal web bind hosts
+
+Co-authored-by: acheong08 <36258159+acheong08@users.noreply.github.com>
+---
+ packages/bundle/web-app/src/index.ts          | 21 ++++++++----
+ packages/bundle/web-app/src/startup.ts        | 10 ++++--
+ packages/bundle/web-app/tests/startup.spec.ts | 22 +++++++++++++
+ .../web-app/tests/trusted-hosts.spec.ts       |  5 +++
+ packages/bundle/web-app/tests/web-app.spec.ts | 33 ++++++++++++++++++-
+ .../host/directory-picker-auto/src/resolve.ts |  2 +-
+ packages/host/webserver/src/index.ts          | 20 ++++++++---
+ 7 files changed, 97 insertions(+), 16 deletions(-)
+
+diff --git a/packages/bundle/web-app/src/index.ts b/packages/bundle/web-app/src/index.ts
+index 4f0367a44f..275f60fe67 100644
+--- a/packages/bundle/web-app/src/index.ts
++++ b/packages/bundle/web-app/src/index.ts
+@@ -68,7 +68,7 @@ export const Config: z<Config> = z.object({
+ export interface WebRuntimeValues {
+   /** LAN IPv4 literals sampled once when the server binds all interfaces. */
+   lanAddresses: string[]
+-  /** LAN literals followed by explicit invocation authorities. */
++  /** Trusted IP literals derived from the bind plus explicit invocation authorities. */
+   trustedHosts: string[]
+ }
+
+@@ -122,7 +122,7 @@ try {
+ `
+
+ /**
+- * Resolve one LAN-trust snapshot from the active server bind.
++ * Resolve one trust snapshot from the active server bind.
+  *
+  * Derived entries are port-less IP literals: DNS rebinding needs an
+  * attacker-controlled name, while an IP-literal Host is safe on any port and
+@@ -137,7 +137,12 @@ export function resolveLanTrust(bindHost: string, extra: readonly string[]): Web
+       .filter((iface): iface is NonNullable<typeof iface> => iface !== undefined && iface.family === 'IPv4' && !iface.internal)
+       .map(iface => iface.address)
+     : []
+-  return { lanAddresses, trustedHosts: [...lanAddresses, ...extra] }
++  const trustedHosts = bindHost === ALL_INTERFACES_HOST
++    ? [...lanAddresses, ...extra]
++    : bindHost === LOOPBACK_HOST
++      ? [...extra]
++      : [bindHost, ...extra]
++  return { lanAddresses, trustedHosts }
+ }
+
+ /** Model-visible orientation and acceptance boundary for sessions created through `dsh web`. */
+@@ -154,11 +159,13 @@ function webSurfacePrompt(webUrl: string): string {
+     + 'Do not start a replacement server unless the user asks; if one is needed, use a managed background job and verify its exact URL.'
+ }
+
+-/** Resolve the canonical loopback URL from the active Web server. */
++/** Resolve the canonical URL from the active Web server bind. */
+ function localWebUrl(ctx: Context): string {
+-  const port = ctx.get('webServer')?.port
+-  if (port === undefined) throw new Error('web-app: webServer service missing while resolving Web runtime')
+-  return `http://${LOOPBACK_HOST}:${String(port)}`
++  const server = ctx.get('webServer')
++  if (server === undefined || server.port === undefined) {
++    throw new Error('web-app: webServer service missing while resolving Web runtime')
++  }
++  return `http://${server.host === ALL_INTERFACES_HOST ? LOOPBACK_HOST : server.host}:${String(server.port)}`
+ }
+
+ /**
+diff --git a/packages/bundle/web-app/src/startup.ts b/packages/bundle/web-app/src/startup.ts
+index 9faad244dd..50ecf66d0e 100644
+--- a/packages/bundle/web-app/src/startup.ts
++++ b/packages/bundle/web-app/src/startup.ts
+@@ -9,6 +9,7 @@
+ import { Command } from 'commander'
+ import type { Context } from '@deepseek-ai/cordis'
+ import { parseCmdline } from '@deepseek-ai/dsh-cmdline'
++import { isSupportedBindHost } from '@deepseek-ai/dsh-host-webserver'
+
+ /** Stable Cordis plugin name. */
+ export const name = 'web-startup'
+@@ -62,9 +63,9 @@ Examples:
+
+ /**
+  * Parse and provide the Web invocation as an ordinary Cordis service. The
+- * command's action publishes the flags this invocation named; `--host 0.0.0.0`
+- * or a non-numeric `--port` is a usage error, so on rejection (and on `--help`)
+- * nothing is provided.
++ * command's action publishes the flags this invocation named; `--host 0.0.0.0`,
++ * an unsupported bind host, or a non-numeric `--port` is a usage error, so on
++ * rejection (and on `--help`) nothing is provided.
+  * @param ctx - plugin context carrying the command line.
+  */
+ export function apply(ctx: Context): void {
+@@ -74,6 +75,9 @@ export function apply(ctx: Context): void {
+     if (options.host === '0.0.0.0') {
+       program.error('error: --host 0.0.0.0 is intentionally not supported yet for safety: it would expose remote code execution to the network; use 127.0.0.1 instead')
+     }
++    if (options.host !== undefined && !isSupportedBindHost(options.host)) {
++      program.error(`error: --host must be 127.0.0.1 or a private/CGNAT IPv4 literal such as 100.64.0.10, got ${JSON.stringify(options.host)}`)
++    }
+     if (options.port !== undefined && !/^\d+$/.test(options.port)) {
+       program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)
+     }
+diff --git a/packages/bundle/web-app/tests/startup.spec.ts b/packages/bundle/web-app/tests/startup.spec.ts
+index a10272f9d3..5e9ff6406a 100644
+--- a/packages/bundle/web-app/tests/startup.spec.ts
++++ b/packages/bundle/web-app/tests/startup.spec.ts
+@@ -110,6 +110,20 @@ describe('web command-line provider', () => {
+     expect(observed.exits).toEqual([])
+   })
+
++  it('accepts an explicit internal IPv4 bind host', async () => {
++    const { values, observed } = await bootProvider(['--host', '100.64.0.9'])
++    expect(values).toEqual({
++      host: '100.64.0.9',
++      trustedHosts: [],
++    })
++    expect(observed.readerConfig).toEqual({
++      host: '100.64.0.9',
++      port: 3080,
++      trustedHosts: [],
++    })
++    expect(observed.exits).toEqual([])
++  })
++
+   it('leaves deployment values to each consumer when flags omit them', async () => {
+     const { values, observed } = await bootProvider([])
+     expect(values).toEqual({ openBrowser: true, trustedHosts: [] })
+@@ -146,4 +160,12 @@ describe('web command-line provider', () => {
+     expect(observed.readerConfig).toBeUndefined()
+     expect(observed.exits).toEqual([1])
+   })
++
++  it('rejects a public bind host before the consumer activates', async () => {
++    const { values, observed } = await bootProvider(['--host', '8.8.8.8'])
++    expect(observed.out).toContain('--host must be 127.0.0.1 or a private/CGNAT IPv4 literal')
++    expect(values).toBeUndefined()
++    expect(observed.readerConfig).toBeUndefined()
++    expect(observed.exits).toEqual([1])
++  })
+ })
+diff --git a/packages/bundle/web-app/tests/trusted-hosts.spec.ts b/packages/bundle/web-app/tests/trusted-hosts.spec.ts
+index 5972569b0d..7b6a4c7b39 100644
+--- a/packages/bundle/web-app/tests/trusted-hosts.spec.ts
++++ b/packages/bundle/web-app/tests/trusted-hosts.spec.ts
+@@ -31,4 +31,9 @@ describe('resolveLanTrust', () => {
+     expect(resolveLanTrust('127.0.0.1', ['lab.internal']))
+       .toEqual({ lanAddresses: [], trustedHosts: ['lab.internal'] })
+   })
++
++  it('trusts an explicit internal IPv4 bind host without advertising a separate LAN URL', () => {
++    expect(resolveLanTrust('100.64.0.9', ['lab.internal']))
++      .toEqual({ lanAddresses: [], trustedHosts: ['100.64.0.9', 'lab.internal'] })
++  })
+ })
+diff --git a/packages/bundle/web-app/tests/web-app.spec.ts b/packages/bundle/web-app/tests/web-app.spec.ts
+index 40e47132ca..9d52c0003f 100644
+--- a/packages/bundle/web-app/tests/web-app.spec.ts
++++ b/packages/bundle/web-app/tests/web-app.spec.ts
+@@ -69,7 +69,7 @@ function stageDist(): string {
+ }
+
+ /** A fake webServer capturing the fallback seat and index taps. */
+-function fakeHttpServer(host: '127.0.0.1' | '0.0.0.0' = '127.0.0.1'): { server: WebServer; seat: () => unknown } {
++function fakeHttpServer(host = '127.0.0.1'): { server: WebServer; seat: () => unknown } {
+   let fallback: unknown
+   const server = {
+     host,
+@@ -163,6 +163,37 @@ describe('web-app runtime glue', () => {
+     await ctx.fiber.dispose()
+   })
+
++  it('advertises an explicit internal bind host through the prompt, runtime trust, and URL line', async () => {
++    stageDist()
++    const ctx = new Context()
++    const { server } = fakeHttpServer('100.64.0.9')
++    ctx.provide('webServer', server)
++    const contributions: BashContribution[] = []
++    ctx.provide('shellEnv', {
++      register: (contribution: BashContribution) => {
++        contributions.push(contribution)
++        return () => {}
++      },
++    } as never)
++    provideLoader(ctx)
++    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
++    apply(ctx, new Config({ openBrowser: false, printUrl: true, surfaceContext: true, trustedHosts: ['lab.internal'] }))
++    await ctx.plugin(SystemPrompt, { persona: '' })
++    await new Promise(resolve => setTimeout(resolve, 0))
++
++    expect(ctx.get('webRuntime')).toEqual({
++      lanAddresses: [],
++      trustedHosts: ['100.64.0.9', 'lab.internal'],
++    })
++    expect(log).toHaveBeenCalledWith('dsh web: http://100.64.0.9:4567')
++    const assembly = await ctx.systemPrompt.assemble()
++    const section = assembly.sections.find(entry => entry.name === 'app:web-surface')
++    expect(section?.text).toContain('http://100.64.0.9:4567')
++    const webRuntime = contributions.find(contribution => contribution.name === 'web-runtime')
++    expect(webRuntime?.resolve()).toEqual({ DSH_WEB_URL: 'http://100.64.0.9:4567' })
++    await ctx.fiber.dispose()
++  })
++
+   it('publishes no readiness side effect when printing and browser opening are disabled', async () => {
+     stageDist()
+     const ctx = new Context()
+diff --git a/packages/host/directory-picker-auto/src/resolve.ts b/packages/host/directory-picker-auto/src/resolve.ts
+index 395e2da55f..b78061d68f 100644
+--- a/packages/host/directory-picker-auto/src/resolve.ts
++++ b/packages/host/directory-picker-auto/src/resolve.ts
+@@ -18,7 +18,7 @@ export type DirectoryPickerEnv = Readonly<
+
+ /** Host facts the backend choice is a pure function of, sampled once at boot. */
+ export interface DirectoryPickerHostFacts {
+-  /** Effective webserver bind host (the schema's closed loopback/all-interfaces union). */
++  /** Effective webserver bind host. */
+   bindHost: HttpServerConfig['host']
+   /** Host process platform. */
+   platform: NodeJS.Platform
+diff --git a/packages/host/webserver/src/index.ts b/packages/host/webserver/src/index.ts
+index bc41100de9..9a7e30d85f 100644
+--- a/packages/host/webserver/src/index.ts
++++ b/packages/host/webserver/src/index.ts
+@@ -38,6 +38,18 @@ declare module '@deepseek-ai/cordis' {
+ /** Route match kind: 'exact' matches the pathname verbatim; 'prefix' p matches p and p/<anything>. */
+ export type WebRouteKind = 'exact' | 'prefix'
+
++const IPV4_OCTET = String.raw`(?:25[0-5]|2[0-4]\d|1?\d?\d)`
++const SUPPORTED_BIND_HOST = new RegExp(String.raw`^(?:127\.0\.0\.1|0\.0\.0\.0|10(?:\.${IPV4_OCTET}){3}|172\.(?:1[6-9]|2\d|3[01])(?:\.${IPV4_OCTET}){2}|192\.168(?:\.${IPV4_OCTET}){2}|100\.(?:6[4-9]|[78]\d|9\d|1[01]\d|12[0-7])(?:\.${IPV4_OCTET}){2})$`)
++
++/**
++ * Whether a bind host is part of the Web carrier's supported contract.
++ * @param host - candidate bind host.
++ * @returns true for the default loopback host, the wildcard host, or an internal IPv4 literal.
++ */
++export function isSupportedBindHost(host: string): boolean {
++  return SUPPORTED_BIND_HOST.test(host)
++}
++
+ /** One named route registration. */
+ export interface WebRoute {
+   kind: WebRouteKind
+@@ -57,8 +69,8 @@ export interface WebUpgradeRoute {
+
+ /** Web server listen and response-compression config. */
+ export interface Config {
+-  /** Listen host; the two supported values are loopback and all-interfaces. */
+-  host: '127.0.0.1' | '0.0.0.0'
++  /** Listen host; accepted values are the default loopback host, all-interfaces, or an internal IPv4 literal. */
++  host: string
+   /** Listen port; zero requests an OS-assigned port. */
+   port: number
+   /** Response compression for socket-backed HTTP requests. @default 'none' */
+@@ -123,7 +135,7 @@ function createGzipMiddleware(config: ResolvedConfig): NodeMiddleware {
+  */
+ export class WebServer extends Service {
+   static Config: z<Config> = z.object({
+-    host: z.union([z.const('127.0.0.1'), z.const('0.0.0.0')]).required(),
++    host: z.string().pattern(SUPPORTED_BIND_HOST).description('127.0.0.1, 0.0.0.0, or a private/CGNAT IPv4 literal').required(),
+     port: z.natural().max(65535).required(),
+     compression: z.union([z.const('none'), z.const('gzip')]).default(DEFAULT_COMPRESSION),
+     compressionLevel: z.number().step(1).min(0).max(9).default(DEFAULT_COMPRESSION_LEVEL),
+@@ -151,7 +163,7 @@ export class WebServer extends Service {
+     return this.listenedPort
+   }
+
+-  /** The configured bind host (the loopback or all-interfaces literal). */
++  /** The configured bind host. */
+   get host(): Config['host'] {
+     return this.config.host
+   }
+--
+2.55.0
