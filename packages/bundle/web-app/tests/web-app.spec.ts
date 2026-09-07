@@ -168,6 +168,7 @@ describe('web-app runtime glue', () => {
     const ctx = new Context()
     const { server } = fakeHttpServer('100.64.0.9')
     ctx.provide('webServer', server)
+    provideConnection(ctx)
     const contributions: BashContribution[] = []
     ctx.provide('shellEnv', {
       register: (contribution: BashContribution) => {
@@ -185,7 +186,7 @@ describe('web-app runtime glue', () => {
       lanAddresses: [],
       trustedHosts: ['100.64.0.9', 'lab.internal'],
     })
-    expect(log).toHaveBeenCalledWith('dsh web: http://100.64.0.9:4567')
+    expect(log).toHaveBeenCalledWith('dsh web: http://100.64.0.9:4567/?token=test-token')
     const assembly = await ctx.systemPrompt.assemble()
     const section = assembly.sections.find(entry => entry.name === 'app:web-surface')
     expect(section?.text).toContain('http://100.64.0.9:4567')

@@ -114,10 +114,12 @@ describe('web command-line provider', () => {
     const { values, observed } = await bootProvider(['--host', '100.64.0.9'])
     expect(values).toEqual({
       host: '100.64.0.9',
+      openBrowser: true,
       trustedHosts: [],
     })
     expect(observed.readerConfig).toEqual({
       host: '100.64.0.9',
+      openBrowser: true,
       port: 3080,
       trustedHosts: [],
     })
