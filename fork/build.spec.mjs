@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
-  ALIASED_FORK_SUFFIXES, applyReplacements, FORK_PACKAGES, PACKAGE_IDENTITY_FILES, PUBLISH_ORDER, SRC_REPLACE,
+  applyReplacements, FORK_PACKAGES, PACKAGE_IDENTITY_FILES, PINNED_UPSTREAM_ROOTS, PUBLISH_ORDER, SRC_REPLACE,
 } from './build.mjs'
 
 describe('fork build package identities', () => {
   it('closes the package set over both changed leaves', () => {
     expect(FORK_PACKAGES.map(pkg => pkg.suffix)).toEqual([
-      'dsh-attachment',
-      'dsh-llm',
       'dsh-host-webserver',
       'dsh-client-connection',
       'dsh-client-file-upload',
@@ -19,8 +17,6 @@ describe('fork build package identities', () => {
       'dsh',
     ])
     expect(PUBLISH_ORDER).toEqual([
-      'dsh-attachment',
-      'dsh-llm',
       'dsh-host-webserver',
       'dsh-client-connection',
       'dsh-client-file-upload',
@@ -33,11 +29,10 @@ describe('fork build package identities', () => {
     ])
   })
 
-  it('keeps replacement service imports on their upstream module identities', () => {
-    expect([...ALIASED_FORK_SUFFIXES]).toEqual(['dsh-attachment', 'dsh-llm'])
-    expect(SRC_REPLACE['packages/llm/llm-pi-ai']).not.toContainEqual([
+  it('pins shared upstream Service Definitions at the installation root', () => {
+    expect(PINNED_UPSTREAM_ROOTS).toEqual([
+      '@deepseek-ai/dsh-attachment',
       '@deepseek-ai/dsh-llm',
-      'dsh-llm',
     ])
   })
 
