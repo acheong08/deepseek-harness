@@ -8,6 +8,8 @@ describe('fork build package identities', () => {
     expect(FORK_PACKAGES.map(pkg => pkg.suffix)).toEqual([
       'dsh-host-webserver',
       'dsh-client-connection',
+      'dsh-client-file-upload',
+      'dsh-http-proxy',
       'dsh-llm-pi-ai',
       'dsh-base',
       'dsh-app-boot',
@@ -17,12 +19,27 @@ describe('fork build package identities', () => {
     expect(PUBLISH_ORDER).toEqual([
       'dsh-host-webserver',
       'dsh-client-connection',
+      'dsh-client-file-upload',
+      'dsh-http-proxy',
       'dsh-llm-pi-ai',
       'dsh-base',
       'dsh-app-boot',
       'dsh-web-app',
       'dsh',
     ])
+  })
+
+  it('replaces upstream packages that do not exist on the current npm alpha channel', () => {
+    expect(applyReplacements(
+      "name: '@deepseek-ai/dsh-client-file-upload'",
+      '@preambient',
+      SRC_REPLACE['packages/bundle/web-app'],
+    )).toBe("name: '@preambient/dsh-client-file-upload'")
+    expect(applyReplacements(
+      "import '@deepseek-ai/dsh-http-proxy'",
+      '@preambient',
+      SRC_REPLACE['apps/cli'],
+    )).toBe("import '@preambient/dsh-http-proxy'")
   })
 
   it('mounts the forked pi-ai provider from the forked base bundle', () => {
