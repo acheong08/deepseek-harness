@@ -5,11 +5,11 @@
  * The fork relaxes the `dsh web` bind host and lets its reverse-proxied browser
  * use Host-only APIs (see fork/README.md). Publishing those changes
  * without mirroring the whole ~200-package monorepo means republishing just
- * nine packages under a new scope, with every other dependency pinned to the
+ * eleven packages under a new scope, with every other dependency pinned to the
  * published upstream `@deepseek-ai/*` versions.
  *
  * This script reproduces that from a committed ref: it stages a detached
- * worktree (the working tree is never modified), renames the nine fork
+ * worktree (the working tree is never modified), renames the fork
  * packages and every workspace reference to them, rebuilds, rewrites their
  * manifests for publication, and packs tarballs into `fork/artifacts/`.
  *
@@ -37,8 +37,10 @@ const DEFAULTS = {
   out: 'fork/artifacts',
 }
 
-// The nine packages this fork republishes. `suffix` is the unscoped npm name.
+// Packages this fork republishes. `suffix` is the unscoped npm name.
 export const FORK_PACKAGES = [
+  { dir: 'packages/attachment/attachment', suffix: 'dsh-attachment' },
+  { dir: 'packages/llm/llm', suffix: 'dsh-llm' },
   { dir: 'packages/host/webserver', suffix: 'dsh-host-webserver' },
   { dir: 'packages/client/connection', suffix: 'dsh-client-connection' },
   { dir: 'packages/client/file-upload', suffix: 'dsh-client-file-upload' },
@@ -49,6 +51,14 @@ export const FORK_PACKAGES = [
   { dir: 'packages/bundle/web-app', suffix: 'dsh-web-app' },
   { dir: 'apps/cli', suffix: 'dsh' },
 ]
+
+// These packages replace incomplete upstream artifacts. Consumers retain the
+// original import name and receive the fork through an npm alias so Cordis
+// loads only one copy of each service module.
+export const ALIASED_FORK_SUFFIXES = new Set([
+  'dsh-attachment',
+  'dsh-llm',
+])
 
 // Old -> suffix source replacements, applied to each package's src/ tree and
 // its cordis.patch.yml. Full-name strings only; never a prefix, so a name like
@@ -132,6 +142,8 @@ export const PACKAGE_IDENTITY_FILES = ['cordis.patch.yml', 'tsdown.config.ts']
 
 /** Dependency-first order for publishing every fork tarball. */
 export const PUBLISH_ORDER = [
+  'dsh-attachment',
+  'dsh-llm',
   'dsh-host-webserver',
   'dsh-client-connection',
   'dsh-client-file-upload',
@@ -219,7 +231,11 @@ function main() {
   const scope = values.scope
 
   const repoRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim()
-  const oldNew = new Map(FORK_PACKAGES.map(p => [`@deepseek-ai/${p.suffix}`, `${scope}/${p.suffix}`]))
+  const oldNew = new Map(FORK_PACKAGES
+    .filter(pkg => !ALIASED_FORK_SUFFIXES.has(pkg.suffix))
+    .map(pkg => [`@deepseek-ai/${pkg.suffix}`, `${scope}/${pkg.suffix}`]))
+  const dependencyAliases = new Map([...ALIASED_FORK_SUFFIXES]
+    .map(suffix => [`@deepseek-ai/${suffix}`, `${scope}/${suffix}`]))
   const forkNames = new Set([...oldNew.values()])
   const packageNames = FORK_PACKAGES.map(pkg => `${scope}/${pkg.suffix}`)
 
@@ -242,8 +258,9 @@ function main() {
     })
     console.log(`fork build: upstream source ${upstreamVersion}; upstream npm dependencies ${upstreamDependencyVersion}; publishing ${version}`)
 
-    // 1. Rename the nine packages' `name` fields and every workspace reference
-    //    to them (dependency keys), across all workspace manifests.
+    // 1. Rename rescopable packages and their dependency keys across all
+    //    workspace manifests. Alias-backed packages retain their upstream
+    //    identity while building.
     let manifests = 0
     for (const glob of MANIFEST_GLOBS) {
       for (const rel of globSync(glob, { cwd: worktree })) {
@@ -323,7 +340,7 @@ function main() {
     run('pnpm', ['install'], worktree)
     run('pnpm', ['run', 'build:lib'], worktree)
 
-    // 4. Pack the nine packages with publication manifests.
+    // 4. Pack the fork packages with publication manifests.
     const outDir = resolve(repoRoot, values.out)
     rmSync(outDir, { recursive: true, force: true })
     mkdirSync(outDir, { recursive: true })
@@ -336,6 +353,7 @@ function main() {
       })
       const manifestPath = join(stage, 'package.json')
       const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+      manifest.name = `${scope}/${pkg.suffix}`
       manifest.version = version
       delete manifest.private
       delete manifest.devDependencies
@@ -343,8 +361,20 @@ function main() {
         const deps = manifest[section]
         if (!deps || typeof deps !== 'object') continue
         for (const key of Object.keys(deps)) {
+          if (dependencyAliases.has(key)) {
+            deps[key] = section === 'peerDependencies'
+              ? version
+              : `npm:${dependencyAliases.get(key)}@${version}`
+            continue
+          }
           deps[key] = VENDORED[key]
             ?? publicationDependencyRange(key, deps[key], forkNames, version, upstreamDependencyVersion)
+        }
+      }
+      if (pkg.suffix === 'dsh') {
+        manifest.dependencies ??= {}
+        for (const [name, target] of dependencyAliases) {
+          manifest.dependencies[name] = `npm:${target}@${version}`
         }
       }
       writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
