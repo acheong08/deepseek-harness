@@ -15,20 +15,23 @@ Two source files carry the functional change:
 
 `packages/host/directory-picker-auto` also differs, but only in JSDoc, so it is not republished.
 
-## Why four packages
+## Why seven packages
 
-The harness composes profiles by package name, so a leaf change must propagate through every package that names it. The four fork packages share one automatically selected fork version; every untouched `@deepseek-ai/dsh-*` dependency remains pinned to the version in the checked-out source. This avoids mirroring the whole monorepo and prevents an independently incremented fork version from requesting an upstream release that does not exist.
+The harness composes profiles by package name, so each changed package must propagate through every package that names it. The seven fork packages share one automatically selected fork version; every untouched `@deepseek-ai/dsh-*` dependency uses the `alpha` npm dist-tag so installations track the upstream source channel without mirroring the whole monorepo.
 
 | Fork package (`@preambient/…`) | Source | Role |
 |---|---|---|
 | `dsh-host-webserver` | `packages/host/webserver` | the bind-host change |
-| `dsh-web-app` | `packages/bundle/web-app` | its `cordis.patch.yml` mounts the webserver by name |
-| `dsh-app-boot` | `packages/boot/app-boot` | its `src/profile.ts` defines the `web` profile's bundle list |
-| `dsh` | `apps/cli` | the CLI entry; depends on the three packages above |
+| `dsh-client-connection` | `packages/client/connection` | enables Host-only APIs behind a reverse proxy |
+| `dsh-llm-pi-ai` | `packages/llm/llm-pi-ai` | adds per-session provider routing headers |
+| `dsh-base` | `packages/bundle/base` | mounts the forked pi-ai provider |
+| `dsh-web-app` | `packages/bundle/web-app` | mounts the forked webserver and connection packages |
+| `dsh-app-boot` | `packages/boot/app-boot` | defines the profile bundle lists |
+| `dsh` | `apps/cli` | installs the forked bundles and shared upstream packages |
 
 ## Build
 
-`fork/build.mjs` reproduces the tarballs from a committed ref. It stages a detached git worktree, renames the four fork packages and their workspace references, rebuilds, rewrites their publication manifests, and packs the result into `fork/artifacts/`. The caller's working tree is not modified.
+`fork/build.mjs` reproduces the tarballs from a committed ref. It resolves the upstream `@alpha` release, stages that tagged source in a detached git worktree, applies the fork patches, renames the seven fork packages and their workspace references, rebuilds, rewrites their publication manifests, and packs the result into `fork/artifacts/`. The caller's working tree is not modified.
 
 ```sh
 node fork/build.mjs                  # defaults: --scope @preambient --ref HEAD
@@ -37,7 +40,7 @@ node fork/build.mjs --version 1.2.3  # bypass automatic version selection
 node fork/build.mjs --keep           # keep the staging worktree for inspection
 ```
 
-Without `--version`, the script reads the CLI version from `--ref` and queries all four scoped package names on npm. It uses the source version when available; when any package already owns that version, it increments the final numeric prerelease identifier until the candidate is unused by all four packages. A registry failure stops the build, and a used version without a numeric prerelease suffix requires an explicit `--version`.
+Without `--version`, the script reads the CLI version from `--ref` and queries all seven scoped package names on npm. It uses the source version when available; when any package already owns that version, it increments the final numeric prerelease identifier until the candidate is unused by all seven packages. A registry failure stops the build, and a used version without a numeric prerelease suffix requires an explicit `--version`.
 
 Output lands in `fork/artifacts/<suffix>/<scope-without-@>-<suffix>-<version>.tgz`. The script prints the selected source and fork versions and the exact publish commands.
 
@@ -49,6 +52,9 @@ A clean-consumer install verifies the package set:
 cd "$(mktemp -d)" && npm init -y >/dev/null
 npm install \
   /path/to/artifacts/dsh-host-webserver/*.tgz \
+  /path/to/artifacts/dsh-client-connection/*.tgz \
+  /path/to/artifacts/dsh-llm-pi-ai/*.tgz \
+  /path/to/artifacts/dsh-base/*.tgz \
   /path/to/artifacts/dsh-app-boot/*.tgz \
   /path/to/artifacts/dsh-web-app/*.tgz \
   /path/to/artifacts/dsh/*.tgz
@@ -65,6 +71,9 @@ Use the dependency-first commands printed by `fork/build.mjs`. From `fork/artifa
 ```sh
 cd fork/artifacts
 npm publish ./dsh-host-webserver/*.tgz --tag next
+npm publish ./dsh-client-connection/*.tgz --tag next
+npm publish ./dsh-llm-pi-ai/*.tgz --tag next
+npm publish ./dsh-base/*.tgz --tag next
 npm publish ./dsh-app-boot/*.tgz --tag next
 npm publish ./dsh-web-app/*.tgz --tag next
 npm publish ./dsh/*.tgz --tag next
@@ -108,7 +117,7 @@ The first command should show one fork-scoped web-app bundle and no `@deepseek-a
 
 ## Maintenance
 
-- **Upstream release:** build from the release ref. Automatic selection uses that ref's CLI version for untouched upstream dependencies and chooses a free fork version.
+- **Upstream release:** rebase on `upstream/master`, then build from the rebased ref. Automatic selection uses the `alpha` dist-tag for untouched upstream dependencies and chooses a free fork version.
 - **New fork behavior:** if the fork changes another package, add it to `FORK_PACKAGES` and `SRC_REPLACE` or `SRC_REPLACE_EXACT` in `build.mjs`, then trace every bundle patch and profile that names it.
 - **Vendored dependency release:** refresh `VENDORED` in `build.mjs` when upstream republishes a vendored Cordis package at another version.
 - **OIDC provenance:** `repository.url` still points at upstream; rewrite it in `build.mjs` before adopting npm provenance.

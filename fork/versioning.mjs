@@ -51,26 +51,12 @@ export function resolveForkVersion({ explicitVersion, upstreamVersion, packageNa
 }
 
 /**
- * Select the npm dist-tag carrying dependencies for a checked-out DSH version.
- * @param {string} version - Version from the checked-out upstream manifest.
- * @returns {string} Registry tag for the matching release channel.
- */
-export function upstreamDependencyDistTag(version) {
-  validateVersion(version, 'upstream version')
-  const separator = version.indexOf('-')
-  if (separator === -1) return 'latest'
-  const [channel] = version.slice(separator + 1).split('.')
-  return channel === 'alpha' || channel === 'canary' ? channel : 'next'
-}
-
-/**
- * Resolve the published upstream-family version for a checked-out release channel.
- * @param {string} upstreamVersion - Version from the checked-out upstream manifest.
+ * Resolve the published upstream-family version for an npm dist-tag.
+ * @param {string} tag - npm dist-tag used for the source baseline.
  * @param {(tag: string) => string[]} readTaggedVersions - Registry tag lookup.
- * @returns {string} Published version shared by untouched upstream DSH packages.
+ * @returns {string} Published version referenced by the tag.
  */
-export function resolveUpstreamDependencyVersion(upstreamVersion, readTaggedVersions) {
-  const tag = upstreamDependencyDistTag(upstreamVersion)
+export function resolveUpstreamDependencyVersion(tag, readTaggedVersions) {
   const version = readTaggedVersions(tag).at(-1)
   if (version === undefined) throw new Error(`upstream npm dist-tag ${tag} has no version`)
   validateVersion(version, `upstream npm dist-tag ${tag}`)
@@ -83,12 +69,12 @@ export function resolveUpstreamDependencyVersion(upstreamVersion, readTaggedVers
  * @param {string} currentRange - Source manifest range.
  * @param {ReadonlySet<string>} forkNames - Renamed packages in this publish set.
  * @param {string} forkVersion - Version assigned to republished packages.
- * @param {string} upstreamVersion - Published version of untouched upstream packages.
+ * @param {string} upstreamTag - npm dist-tag for untouched upstream packages.
  * @returns {string} Publication-ready dependency range.
  */
-export function publicationDependencyRange(name, currentRange, forkNames, forkVersion, upstreamVersion) {
+export function publicationDependencyRange(name, currentRange, forkNames, forkVersion, upstreamTag) {
   if (forkNames.has(name)) return `^${forkVersion}`
-  if (name.startsWith('@deepseek-ai/dsh-')) return upstreamVersion
+  if (name.startsWith('@deepseek-ai/dsh-')) return upstreamTag
   return currentRange
 }
 

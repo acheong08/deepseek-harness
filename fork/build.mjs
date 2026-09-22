@@ -36,6 +36,8 @@ const DEFAULTS = {
   out: 'fork/artifacts',
 }
 
+const UPSTREAM_DEPENDENCY_TAG = 'alpha'
+
 // Packages this fork republishes. `suffix` is the unscoped npm name.
 export const FORK_PACKAGES = [
   { dir: 'packages/host/webserver', suffix: 'dsh-host-webserver' },
@@ -228,7 +230,7 @@ function main() {
   ))
   const sourceVersion = sourceManifest.version
   const upstreamDependencyVersion = resolveUpstreamDependencyVersion(
-    sourceVersion,
+    UPSTREAM_DEPENDENCY_TAG,
     tag => readRegistryTagVersions('@deepseek-ai/dsh', tag),
   )
   const upstreamRef = `dsh-v${upstreamDependencyVersion}`
@@ -245,7 +247,7 @@ function main() {
       packageNames,
       readPublishedVersions: readRegistryVersions,
     })
-    console.log(`fork build: source channel ${sourceVersion}; published base ${upstreamDependencyVersion}; publishing ${version}`)
+    console.log(`fork build: source channel ${sourceVersion}; @alpha base ${upstreamDependencyVersion}; publishing ${version}`)
 
     // 1. Rename fork packages and their dependency keys across all workspace
     //    manifests.
@@ -342,12 +344,12 @@ function main() {
         if (!deps || typeof deps !== 'object') continue
         for (const key of Object.keys(deps)) {
           deps[key] = VENDORED[key]
-            ?? publicationDependencyRange(key, deps[key], forkNames, version, upstreamDependencyVersion)
+            ?? publicationDependencyRange(key, deps[key], forkNames, version, UPSTREAM_DEPENDENCY_TAG)
         }
       }
       if (pkg.suffix === 'dsh') {
         manifest.dependencies ??= {}
-        for (const name of PINNED_UPSTREAM_ROOTS) manifest.dependencies[name] = upstreamDependencyVersion
+        for (const name of PINNED_UPSTREAM_ROOTS) manifest.dependencies[name] = UPSTREAM_DEPENDENCY_TAG
       }
       writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
       const name = execSync('npm pack --silent', { cwd: stage, encoding: 'utf8' }).trim()

@@ -6,7 +6,6 @@ import {
   publicationDependencyRange,
   resolveUpstreamDependencyVersion,
   resolveForkVersion,
-  upstreamDependencyDistTag,
 } from './versioning.mjs'
 
 test('uses the checked-out upstream version when every fork package is free', () => {
@@ -81,25 +80,21 @@ test('dependency ranges distinguish fork packages from untouched upstream packag
     '^0.1.0-rc.8',
   )
   assert.equal(
-    publicationDependencyRange('@deepseek-ai/dsh-base', 'workspace:^', forkNames, '0.1.0-rc.8', '0.1.0-rc.7'),
-    '0.1.0-rc.7',
+    publicationDependencyRange('@deepseek-ai/dsh-base', 'workspace:^', forkNames, '0.1.0-rc.8', 'alpha'),
+    'alpha',
   )
   assert.equal(
-    publicationDependencyRange('chalk', '^5.0.0', forkNames, '0.1.0-rc.8', '0.1.0-rc.7'),
+    publicationDependencyRange('chalk', '^5.0.0', forkNames, '0.1.0-rc.8', 'alpha'),
     '^5.0.0',
   )
 })
 
-test('upstream dependencies follow the published release channel instead of the source version', () => {
-  assert.equal(upstreamDependencyDistTag('0.1.3-alpha.1'), 'alpha')
-  assert.equal(upstreamDependencyDistTag('0.1.3-canary.1'), 'canary')
-  assert.equal(upstreamDependencyDistTag('0.1.3-rc.1'), 'next')
-  assert.equal(upstreamDependencyDistTag('0.1.3'), 'latest')
+test('resolves the source baseline from the alpha dist-tag', () => {
   assert.equal(
-    resolveUpstreamDependencyVersion('0.1.3-alpha.1', tag => {
+    resolveUpstreamDependencyVersion('alpha', tag => {
       assert.equal(tag, 'alpha')
-      return ['0.1.2-alpha.5']
+      return ['0.1.7-alpha.2']
     }),
-    '0.1.2-alpha.5',
+    '0.1.7-alpha.2',
   )
 })
