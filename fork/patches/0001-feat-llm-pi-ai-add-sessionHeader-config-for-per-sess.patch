@@ -63,7 +63,7 @@ index e20b8e0072..f2b84c1c55 100644
 +          options.sessionId === undefined ? undefined : String(options.sessionId),
 +        ),
        })
-       const iterator = toStreamChunks(events, model.contextWindow, options.signal)[Symbol.asyncIterator]()
+       const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]()
        let exhausted = false
 diff --git a/packages/llm/llm-pi-ai/src/config.ts b/packages/llm/llm-pi-ai/src/config.ts
 index 8da589cc39..099971d84a 100644

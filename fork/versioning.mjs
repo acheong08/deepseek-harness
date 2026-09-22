@@ -69,12 +69,12 @@ export function resolveUpstreamDependencyVersion(tag, readTaggedVersions) {
  * @param {string} currentRange - Source manifest range.
  * @param {ReadonlySet<string>} forkNames - Renamed packages in this publish set.
  * @param {string} forkVersion - Version assigned to republished packages.
- * @param {string} upstreamTag - npm dist-tag for untouched upstream packages.
+ * @param {string} upstreamVersion - Published version of untouched upstream packages.
  * @returns {string} Publication-ready dependency range.
  */
-export function publicationDependencyRange(name, currentRange, forkNames, forkVersion, upstreamTag) {
+export function publicationDependencyRange(name, currentRange, forkNames, forkVersion, upstreamVersion) {
   if (forkNames.has(name)) return `^${forkVersion}`
-  if (name.startsWith('@deepseek-ai/dsh-')) return upstreamTag
+  if (name.startsWith('@deepseek-ai/dsh-')) return upstreamVersion
   return currentRange
 }
 

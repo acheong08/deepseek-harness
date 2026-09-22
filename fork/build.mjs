@@ -344,12 +344,12 @@ function main() {
         if (!deps || typeof deps !== 'object') continue
         for (const key of Object.keys(deps)) {
           deps[key] = VENDORED[key]
-            ?? publicationDependencyRange(key, deps[key], forkNames, version, UPSTREAM_DEPENDENCY_TAG)
+            ?? publicationDependencyRange(key, deps[key], forkNames, version, upstreamDependencyVersion)
         }
       }
       if (pkg.suffix === 'dsh') {
         manifest.dependencies ??= {}
-        for (const name of PINNED_UPSTREAM_ROOTS) manifest.dependencies[name] = UPSTREAM_DEPENDENCY_TAG
+        for (const name of PINNED_UPSTREAM_ROOTS) manifest.dependencies[name] = upstreamDependencyVersion
       }
       writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
       const name = execSync('npm pack --silent', { cwd: stage, encoding: 'utf8' }).trim()

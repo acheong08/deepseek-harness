@@ -17,7 +17,7 @@ Two source files carry the functional change:
 
 ## Why seven packages
 
-The harness composes profiles by package name, so each changed package must propagate through every package that names it. The seven fork packages share one automatically selected fork version; every untouched `@deepseek-ai/dsh-*` dependency uses the `alpha` npm dist-tag so installations track the upstream source channel without mirroring the whole monorepo.
+The harness composes profiles by package name, so each changed package must propagate through every package that names it. The seven fork packages share one automatically selected fork version. The build resolves the `alpha` npm dist-tag once, then pins every untouched `@deepseek-ai/dsh-*` dependency to that exact version so npm and Bun cannot assemble different upstream generations.
 
 | Fork package (`@preambient/…`) | Source | Role |
 |---|---|---|

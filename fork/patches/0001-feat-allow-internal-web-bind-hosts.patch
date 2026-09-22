@@ -187,7 +187,7 @@ index 40e47132ca..9d52c0003f 100644
 +    provideLoader(ctx)
 +    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
 +    apply(ctx, new Config({ openBrowser: false, printUrl: true, surfaceContext: true, trustedHosts: ['lab.internal'] }))
-+    await ctx.plugin(SystemPrompt, { persona: '' })
++    await ctx.plugin(SystemPrompt, { personaPrefix: '' })
 +    await new Promise(resolve => setTimeout(resolve, 0))
 +
 +    expect(ctx.get('webRuntime')).toEqual({

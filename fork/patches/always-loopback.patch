@@ -1,14 +1,24 @@
 diff --git a/packages/client/connection/src/client/index.ts b/packages/client/connection/src/client/index.ts
 --- a/packages/client/connection/src/client/index.ts
 +++ b/packages/client/connection/src/client/index.ts
-@@ -14,6 +14,5 @@ import { createFixtureConnectionRpc } from './fixture.ts'
- import { createFixtureConnectionRpc } from './fixture.ts'
+@@ -9,7 +9,6 @@ import {
+   type ConnectionState,
+ } from './connection.ts'
  import { createWebConnectionRpc, type RpcFetch, type RpcStreamOpen } from './rpc.ts'
 -import { isLoopbackHostname } from '../loopback-hostname.ts'
  import type { ClientConnectionRpc } from '../rpc.ts'
+ import { resolveConnectionConfig } from '../recovery-config.ts'
 
- declare module '@deepseek-ai/cordis' {
-@@ -227,6 +226,6 @@ export function apply(ctx: Context): void {
+@@ -202,7 +201,6 @@ function watchBrowserNetwork(controller: ConnectionController): () => void {
+  * @param options - physical carrier, reconnect timing, and page location.
+  */
+ export function installConnection(ctx: Context, options: ConnectionInstallOptions = {}): void {
+-  const pageLocation = options.location
+   const transport = options.transport
+   const recovery = options.recovery ?? {}
+   const rpc = transport?.rpc ?? createWebConnectionRpc(transport?.fetch, transport?.openStream)
+@@ -245,7 +243,7 @@ export function installConnection(ctx: Context, options: ConnectionInstallOption
+     publishState(undefined)
    }
    const handle: ConnectionHandle = {
 -    isLoopback: transport?.ownsHost === true || pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
